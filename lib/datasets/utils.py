@@ -1,13 +1,13 @@
 import torch.utils.data 
 import pandas as pd 
 
-from typing import Any, Callable
-from transformers import PreTrainedTokenizer, DataCollatorForLanguageModeling
+from typing import Any, Callable, Union
+from transformers import PreTrainedTokenizer, DataCollatorForLanguageModeling, PreTrainedTokenizerFast
 from transformers.models.clip.image_processing_clip import CLIPImageProcessor
 from PIL import Image 
 
 class MLMDataset(torch.utils.data.Dataset):
-    def __init__(self, df: pd.DataFrame, tokenizer: PreTrainedTokenizer, transforms: Callable[[Any], torch.Tensor]):
+    def __init__(self, df: pd.DataFrame, tokenizer: Union[PreTrainedTokenizerFast, PreTrainedTokenizer], transforms: Callable[[Any], torch.Tensor]):
         self.df = df 
         self.transforms = transforms 
 

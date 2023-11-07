@@ -21,8 +21,8 @@ val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size=16, drop_la
 clip_model = CLIPModel.from_pretrained('openai/clip-vit-base-patch16')
 
 
-model = IRRA(clip_model, 4, tokenizer.vocab_size, .2)
+model = IRRA(clip_model, 4, tokenizer.vocab_size, .2) # type: ignore
 
 
-trainer = pl.Trainer(precision=16)
+trainer = pl.Trainer()
 trainer.fit(model, train_dataloaders=train_dataloader, val_dataloaders=val_dataloader)
