@@ -22,8 +22,8 @@ def sdm_loss(image_features: torch.Tensor, text_features: torch.Tensor, pid: tor
     image_norm = image_features / image_features.norm(dim=1, keepdim=True)
     text_norm = text_features / text_features.norm(dim=1, keepdim=True)
 
-    t2i_cosine_theta = text_norm @ image_norm.T
-    i2t_cosine_theta = t2i_cosine_theta.T
+    t2i_cosine_theta = text_norm @ image_norm.t()
+    i2t_cosine_theta = t2i_cosine_theta.t()
 
     text_proj_image = logit_scale * t2i_cosine_theta
     image_proj_text = logit_scale * i2t_cosine_theta
