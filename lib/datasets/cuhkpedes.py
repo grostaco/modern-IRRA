@@ -28,8 +28,6 @@ class CUHKPEDES:
 
         df = df.rename(columns={'index': 'image_id', 'id': 'pid', 'captions': 'caption', 'file_path': 'img_path'})
         df = df[['image_id', 'pid', 'caption', 'img_path']]
-
-        df = df[df['img_path'].map(lambda x: x.exists())]
         
         return df, set(df['pid'])
 

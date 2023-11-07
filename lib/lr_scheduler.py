@@ -53,7 +53,7 @@ class LRSchedulerWithWarmup(LRScheduler):
             elif self.warmup_method == "linear":
                 alpha = self.last_epoch / self.warmup_epochs
                 warmup_factor = self.warmup_factor * (1 - alpha) + alpha
-            return [base_lr * warmup_factor for base_lr in self.base_lrs]
+            return [base_lr * warmup_factor for base_lr in self.base_lrs] # type: ignore
 
         if self.mode == "step":
             return [
