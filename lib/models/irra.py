@@ -16,7 +16,6 @@ class IRRA(pl.LightningModule):
                  vit: CLIPModel,
                  num_layers: int,
                  vocab_size: int,
-                 eos_token_id: int,
                  temperature: float,
                  num_classes = 11003):
         super().__init__()
@@ -24,7 +23,6 @@ class IRRA(pl.LightningModule):
         self.logit_scale = torch.ones([]) * (1 / temperature)
 
         self.vit = vit 
-        self.eos_token_id = eos_token_id
         
         vit_config = cast(CLIPConfig, vit.config)
         
