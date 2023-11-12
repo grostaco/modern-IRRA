@@ -2,3 +2,5 @@ data
 *.ipynb
 __pycache__
 lightning_logs
+logs
+.vscode

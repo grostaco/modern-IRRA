@@ -16,7 +16,7 @@ transforms = build_transforms(is_train=True)
 transforms_val = build_transforms(is_train=False)
 tokenizer = AutoTokenizer.from_pretrained('./masked_tokenizer')
 
-train_dataset = MLMDataset(dataset.df_train, tokenizer=tokenizer, transforms=transforms)
+train_dataset = MLMDataset(dataset.df_train.sample(n=4), tokenizer=tokenizer, transforms=transforms)
 val_dataset = MLMDataset(dataset.df_val, tokenizer=tokenizer, transforms=transforms_val)
 train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=8, drop_last=True, shuffle=True)
 val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size=8, drop_last=True)

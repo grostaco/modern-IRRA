@@ -1,6 +1,5 @@
 from collections import OrderedDict
 import pytorch_lightning as pl
-from pytorch_lightning.utilities.types import OptimizerLRScheduler
 import torch 
 import torch.nn as nn
 
@@ -10,6 +9,10 @@ from transformers.models.clip.modeling_clip import CLIPModel, CLIPConfig, CLIPOu
 from .residual import ResidualEncoder, ResidualAttentionBlock
 from ..losses import sdm_loss, id_loss, mlm_loss
 from ..lr_scheduler import LRSchedulerWithWarmup
+
+class IRRAConfig():
+    def __init__(self):
+        ...
 
 class IRRA(pl.LightningModule):
     def __init__(self, 
