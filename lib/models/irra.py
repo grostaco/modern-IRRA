@@ -29,15 +29,7 @@ class IRRA(pl.LightningModule):
         
         vit_config = cast(CLIPConfig, vit.config)
         
-        self.text_classification_head = nn.Linear(vit_config.text_config.hidden_size, num_classes)
-        nn.init.normal_(self.text_classification_head.weight, std=.001)
-        nn.init.constant_(self.text_classification_head.bias.data, val=.0)
-
-        self.vision_classification_head = nn.Linear(vit_config.vision_config.hidden_size, num_classes)
-        nn.init.normal_(self.vision_classification_head.weight, std=.001)
-        nn.init.constant_(self.vision_classification_head.bias.data, val=.0)
-
-        self.img_proj = nn.Linear(vit_config.vision_config.hidden_size, vit_config.text_config.hidden_size) 
+        self.classification_head = nn.Linear(vit_config.projection_dim, num_classes)
 
         self.mlm = MLM(vit_config.projection_dim, num_layers, vocab_size)
 
@@ -61,21 +53,18 @@ class IRRA(pl.LightningModule):
     def training_step(self, batch: dict[str, torch.Tensor], batch_idx: ...):
         clip_output = self.forward(batch)
 
-        vision_model_output, text_model_output = clip_output.vision_model_output, clip_output.text_model_output
-
         # TODO: use projection directly from CLIP
-        image_cls = vision_model_output.pooler_output 
-        text_cls = text_model_output.pooler_output
+        image_cls = clip_output.image_embeds
+        text_cls = clip_output.text_embeds
 
-        image_logits = self.vision_classification_head(image_cls)
-        text_logits = self.text_classification_head(text_cls)
+        image_logits = self.classification_head(image_cls)
+        text_logits = self.classification_head(text_cls)
 
         # MLM loss
         mlm_ids = batch['mlm_ids']
-        mlm_embeds = self.vit.text_model(mlm_ids).last_hidden_state
-        image_embeds = self.img_proj(vision_model_output.last_hidden_state)
+        mlm_embeds = self.vit.get_text_features(mlm_ids)
 
-        scores = self.mlm(mlm_embeds, image_embeds)
+        scores = self.mlm(mlm_embeds, image_cls)
         mlm_labels = batch['mlm_labels'].reshape(-1)
 
         loss_mlm = mlm_loss(scores, mlm_labels)
