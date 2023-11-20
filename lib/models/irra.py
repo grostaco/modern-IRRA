@@ -1,117 +1,98 @@
 from collections import OrderedDict
-import pytorch_lightning as pl
 import torch 
 import torch.nn as nn
 
-from typing import cast 
-from transformers.models.clip.modeling_clip import CLIPModel, CLIPConfig, CLIPOutput
+from typing import Optional, cast 
+from transformers import BertForMaskedLM
+from transformers.models.clip.modeling_clip import CLIPModel, CLIPConfig, ModelOutput, CLIPOutput
+from dataclasses import dataclass 
 
 from .residual import ResidualEncoder, ResidualAttentionBlock
 from ..losses import sdm_loss, id_loss, mlm_loss
-from ..lr_scheduler import LRSchedulerWithWarmup
+# from ..lr_scheduler import LRSchedulerWithWarmup
 
-class IRRAConfig():
-    def __init__(self):
-        ...
+class IRRAConfig(CLIPConfig):
+    def __init__(self, num_layers: int = 4,
+                 vocab_size: int = 49408,
+                 num_classes = 11003,
+                 **kwargs):
+        self.num_layers = num_layers
+        self.vocab_size = vocab_size 
+        self.num_classes = num_classes 
 
-class IRRA(pl.LightningModule):
-    def __init__(self, 
-                 vit: CLIPModel,
-                 num_layers: int,
-                 vocab_size: int,
-                 temperature: float,
-                 num_classes = 11003):
-        super().__init__()
-        
-        self.logit_scale = torch.ones([]) * (1 / temperature)
+        super().__init__(**kwargs)
 
-        self.vit = vit 
-        
-        vit_config = cast(CLIPConfig, vit.config)
-        
-        self.classification_head = nn.Linear(vit_config.projection_dim, num_classes)
+@dataclass
+class IRRAOutput(ModelOutput):
+    loss: Optional[torch.Tensor] = None 
+    image_logits: Optional[torch.Tensor] = None  
+    text_logits: Optional[torch.Tensor] = None
 
-        self.mlm = MLM(vit_config.projection_dim, num_layers, vocab_size)
+class IRRA(CLIPModel):
+    config_class = IRRAConfig 
+
+    def __init__(self, config: IRRAConfig):
+        super().__init__(config)
+        self.classification_head = nn.Linear(config.vision_config.projection_dim, config.num_classes)
+
+        self.mlm = MLM(config.projection_dim, config.num_layers, config.vocab_size)
+        #self.text_image_proj = nn.Linear(config.text_config.projection_dim, config.vision_config.hidden_size, bias=False)
 
     def encode_image(self, image: torch.FloatTensor):
-        x = self.vit.get_image_features(image)
+        x = self.get_image_features(image)
 
         return x
     
     def encode_text(self, text: torch.Tensor):
-        x = self.vit.get_text_features(text).float()
+        x = self.get_text_features(text).float()
 
         return x
     
-    def forward(self, batch: dict[str, torch.Tensor]) -> CLIPOutput:
-        images = batch['images']
-        caption_ids = batch['caption_ids']
-        clip_output = self.vit(caption_ids, images)
+    def forward(self, input_ids: torch.LongTensor,
+                attention_mask: torch.Tensor,
+                pixel_values: torch.FloatTensor,
+                pids: torch.Tensor,
+                mlm_input_ids: torch.Tensor,
+                mlm_labels: torch.Tensor) -> IRRAOutput:
+        clip_output = super().forward(input_ids=input_ids,
+                                    attention_mask=attention_mask,
+                                    pixel_values=pixel_values)
+        clip_output = cast(CLIPOutput, clip_output)
 
-        return clip_output
-    
-    def training_step(self, batch: dict[str, torch.Tensor], batch_idx: ...):
-        clip_output = self.forward(batch)
-
-        # TODO: use projection directly from CLIP
-        image_cls = clip_output.image_embeds
-        text_cls = clip_output.text_embeds
-
-        image_logits = self.classification_head(image_cls)
-        text_logits = self.classification_head(text_cls)
+        image_embeds, text_embeds = clip_output.image_embeds, clip_output.text_embeds
+        image_logits = self.classification_head(image_embeds)
+        text_logits = self.classification_head(text_embeds)
 
         # MLM loss
-        mlm_ids = batch['mlm_ids']
-        mlm_embeds = self.vit.get_text_features(mlm_ids)
+        mlm_embeds = self.text_model(mlm_input_ids, attention_mask=attention_mask).last_hidden_state
+        mlm_embeds = self.text_projection(mlm_embeds)
+        image_representation = clip_output.vision_model_output.last_hidden_state
+        image_representation = self.visual_projection(image_representation)
 
-        scores = self.mlm(mlm_embeds, image_cls)
-        mlm_labels = batch['mlm_labels'].reshape(-1)
+        scores = self.mlm(mlm_embeds, image_representation)
+        mlm_labels = mlm_labels.view(-1)
 
-        loss_mlm = mlm_loss(scores, mlm_labels)
+        loss_mlm = mlm_loss(mlm_labels, scores)
 
         # SDM loss
-        loss_sdm = sdm_loss(clip_output.image_embeds, clip_output.text_embeds, batch['pids'], self.logit_scale) 
+        loss_sdm = sdm_loss(clip_output.logits_per_image, 
+                            clip_output.logits_per_text, 
+                            pids)
 
-        # ID loss
-        loss_id =  id_loss(image_logits, text_logits, batch['pids']) 
+        # ID loss 
+        loss_id = id_loss(image_logits, text_logits, pids)
 
-        image_pred = torch.argmax(image_logits, dim=1)
-        text_pred = torch.argmax(text_logits, dim=1)
+        # image_pred = torch.argmax(image_logits, dim=1)
+        # text_pred = torch.argmax(text_logits, dim=1)
 
-        image_acc = (image_pred == batch['pids']).float().mean()
-        text_acc = (text_pred == batch['pids']).float().mean()
-        
+        # image_acc = (image_pred == pids).float().mean()
+        # text_acc = (text_pred == pids).float().mean()
 
-        self.log_dict({'train/loss_sdm': loss_sdm,
-                       'train/loss_id': loss_id,
-                       'train/loss_mlm': loss_mlm,
-                       'train/acc_text': text_acc,
-                       'train/acc_image': image_acc},
-                      prog_bar=True,
-                      logger=True,
-                      on_step=True,
-                      on_epoch=True,
-                      sync_dist=True)
-
-        loss = loss_sdm + loss_id + loss_mlm 
-        return loss
-    
-    def configure_optimizers(self):
-        optimizer = torch.optim.Adam(
-            self.parameters(),
-            lr=1e-5,
-            betas=(0.9, 0.999),
-            eps=1e-3,
+        return IRRAOutput(
+            loss=loss_sdm + loss_id + loss_mlm,
+            image_logits=image_logits,
+            text_logits=text_logits
         )
-        scheduler = LRSchedulerWithWarmup(optimizer=optimizer, 
-                                          milestones=(20, 50), 
-                                          gamma=0.1, 
-                                          warmup_factor=0.1, 
-                                          warmup_epochs=5, 
-                                          warmup_method='linear', 
-                                          mode='cosine', 
-                                          target_lr=0, power=0.9)
-        return {'optimizer': optimizer, 'lr_scheduler': scheduler}
     
 
 class MLM(nn.Module):
@@ -171,30 +152,24 @@ class MLM(nn.Module):
         h = self.cross_former(text_feats, image_feats, image_feats)
         h = self.mlm_head(h)
 
-        scores = h.float().reshape(-1, self.vocab_size)
+        scores = h.float().view(-1, self.vocab_size)
         return scores 
 
-
-"""
-
-    # def validation_step(self, batch: dict[str, torch.Tensor], batch_idx: ...):
+    # def training_step(self, batch: dict[str, torch.Tensor], batch_idx: ...):
     #     clip_output = self.forward(batch)
 
-    #     vision_model_output, text_model_output = clip_output.vision_model_output, clip_output.text_model_output
-
     #     # TODO: use projection directly from CLIP
-    #     image_cls = vision_model_output.pooler_output 
-    #     text_cls = text_model_output.pooler_output
+    #     image_cls = clip_output.image_embeds
+    #     text_cls = clip_output.text_embeds
 
-    #     image_logits = self.vision_classification_head(image_cls)
-    #     text_logits = self.text_classification_head(text_cls)
+    #     image_logits = self.classification_head(image_cls)
+    #     text_logits = self.classification_head(text_cls)
 
     #     # MLM loss
     #     mlm_ids = batch['mlm_ids']
-    #     mlm_embeds = self.vit.text_model(mlm_ids).last_hidden_state
-    #     image_embeds = self.img_proj(vision_model_output.last_hidden_state)
+    #     mlm_embeds = self.vit.get_text_features(mlm_ids)
 
-    #     scores = self.mlm(mlm_embeds, image_embeds)
+    #     scores = self.mlm(mlm_embeds, image_cls)
     #     mlm_labels = batch['mlm_labels'].reshape(-1)
 
     #     loss_mlm = mlm_loss(scores, mlm_labels)
@@ -212,17 +187,34 @@ class MLM(nn.Module):
     #     text_acc = (text_pred == batch['pids']).float().mean()
         
 
-    #     self.log_dict({'val/loss_sdm': loss_sdm,
-    #                     'val/loss_id': loss_id,
-    #                     'val/loss_mlm': loss_mlm,
-    #                     'val/acc_text': text_acc,
-    #                     'val/acc_image': image_acc},
-    #                     prog_bar=True,
-    #                     logger=True,
-    #                     on_step=True,
-    #                     on_epoch=True,
-    #                     sync_dist=True)
+    #     self.log_dict({'train/loss_sdm': loss_sdm,
+    #                    'train/loss_id': loss_id,
+    #                    'train/loss_mlm': loss_mlm,
+    #                    'train/acc_text': text_acc,
+    #                    'train/acc_image': image_acc},
+    #                   prog_bar=True,
+    #                   logger=True,
+    #                   on_step=True,
+    #                   on_epoch=True,
+    #                   sync_dist=True)
 
     #     loss = loss_sdm + loss_id + loss_mlm 
     #     return loss
-"""
+    
+    # def configure_optimizers(self):
+    #     optimizer = torch.optim.Adam(
+    #         self.parameters(),
+    #         lr=1e-5,
+    #         betas=(0.9, 0.999),
+    #         eps=1e-3,
+    #     )
+    #     scheduler = LRSchedulerWithWarmup(optimizer=optimizer, 
+    #                                       milestones=(20, 50), 
+    #                                       gamma=0.1, 
+    #                                       warmup_factor=0.1, 
+    #                                       warmup_epochs=5, 
+    #                                       warmup_method='linear', 
+    #                                       mode='cosine', 
+    #                                       target_lr=0, power=0.9)
+    #     return {'optimizer': optimizer, 'lr_scheduler': scheduler}
+    
