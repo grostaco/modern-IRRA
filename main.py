@@ -29,6 +29,7 @@ logger = TensorBoardLogger('logs')
 trainer = pl.Trainer(
     max_epochs=60,
     log_every_n_steps=10,
-    logger=logger)
+    logger=logger,
+    precision=16)
 
 trainer.fit(model, train_dataloaders=train_dataloader)
