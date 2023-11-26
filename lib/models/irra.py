@@ -4,7 +4,6 @@ import torch
 import torch.nn as nn
 
 from typing import Any, Optional, cast 
-from transformers import BertForMaskedLM
 from transformers.models.clip.modeling_clip import CLIPModel, CLIPConfig, ModelOutput, CLIPOutput
 from dataclasses import dataclass 
 
