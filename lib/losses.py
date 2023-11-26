@@ -34,4 +34,4 @@ def mlm_loss(y_true: torch.Tensor, y_pred: torch.Tensor):
     return F.cross_entropy(y_pred, y_true, ignore_index=-100)
 
 def id_loss(image_logits: torch.Tensor, text_logits: torch.Tensor, labels: torch.Tensor):
-    return (F.cross_entropy(image_logits, labels) + F.cross_entropy(text_logits, labels)) / 2
+    return (F.cross_entropy(image_logits, labels, reduction='mean') + F.cross_entropy(text_logits, labels, reduction='mean')) / 2
