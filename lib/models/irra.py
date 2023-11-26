@@ -1,10 +1,9 @@
 from collections import OrderedDict
-from pytorch_lightning.utilities.types import STEP_OUTPUT
 import torch 
 import torch.nn as nn
 
-from typing import Any, Optional, cast 
-from transformers.models.clip.modeling_clip import CLIPModel, CLIPConfig, ModelOutput, CLIPOutput
+from typing import cast 
+from transformers.models.clip.modeling_clip import CLIPModel, CLIPOutput
 from dataclasses import dataclass 
 
 from .residual import ResidualEncoder, ResidualAttentionBlock
@@ -23,6 +22,9 @@ class IRRA(pl.LightningModule):
         
         config = self.clip.config 
         self.classification_head = nn.Linear(config.projection_dim, num_classes)
+        nn.init.normal_(self.classification_head.weight.data, std=0.001)
+        nn.init.constant_(self.classification_head.bias.data, val=0.0)
+
         self.mlm = MLM(config.projection_dim, num_layers, vocab_size)
 
     def encode_image(self, image: torch.FloatTensor):
