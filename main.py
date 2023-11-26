@@ -18,8 +18,8 @@ tokenizer = AutoTokenizer.from_pretrained('./masked_tokenizer')
 
 train_dataset = MLMDataset(dataset.df_train, tokenizer=tokenizer, transforms=transforms)
 val_dataset = MLMDataset(dataset.df_val, tokenizer=tokenizer, transforms=transforms_val)
-train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=64, drop_last=True, shuffle=True)
-val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size=64, drop_last=True)
+train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=64, drop_last=True, shuffle=True, num_workers=8)
+val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size=64, drop_last=True, num_workers=8)
 clip_model = CLIPModel.from_pretrained('openai/clip-vit-base-patch16')
 
 
